@@ -104,3 +104,5 @@ pub trait SbReadable: Read {
         }
     }
 }
+
+impl<R: Read> SbReadable for R {}
