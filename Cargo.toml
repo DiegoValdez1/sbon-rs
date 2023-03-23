@@ -4,9 +4,10 @@ version = "0.1.0"
 authors = [ "Diego Valdez" ]
 edition = "2021"
 description = "Allows you to interface with the file formats used by the game Starbound."
-readme = "README.md"
 repository = "https://github.com/DiegoValdez1/sbon-rs"
 
 [lib]
 
 [dependencies]
+byteorder = "1.4.3"
+thiserror = "1.0.40"
