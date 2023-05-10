@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use serde::{Serialize, ser::SerializeSeq};
+use serde::{Serialize, ser::{SerializeSeq, SerializeMap}};
 use std::{
     collections::HashMap,
     io::{Read, Seek, SeekFrom},
@@ -63,7 +63,15 @@ impl Serialize for Dynamic {
 
                 seq.end()
             },
-            Dynamic::Map(x) => todo!(),
+            Dynamic::Map(x) => {
+                let mut map = serializer.serialize_map(Some(x.len()))?;
+                
+                for (key, value) in x {
+                    map.serialize_entry(key, value)?;
+                }
+
+                map.end()
+            },
         }
     }
 }

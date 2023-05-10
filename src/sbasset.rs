@@ -4,7 +4,7 @@ use globset::Glob;
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Seek, SeekFrom}, fmt::Display,
+    io::{Cursor, Read, Seek, SeekFrom}
 };
 use thiserror::Error;
 
