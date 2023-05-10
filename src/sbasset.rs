@@ -1,9 +1,10 @@
 use crate::{Dynamic, SbReadable, SbonError};
 use byteorder::{BigEndian, ReadBytesExt};
 use globset::Glob;
+use serde::Serialize;
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Seek, SeekFrom},
+    io::{Cursor, Read, Seek, SeekFrom}, fmt::Display,
 };
 use thiserror::Error;
 
@@ -21,6 +22,12 @@ pub enum AssetError {
         source: SbonError,
     },
 
+    #[error("Error in glob")]
+    GlobError {
+        #[from]
+        source: globset::Error,
+    },
+
     #[error("The information map (metadata) in the asset is invalid.")]
     InvalidInfoMap,
 }
@@ -30,7 +37,7 @@ pub struct AssetFile {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct Info {
     pub internal_name: Option<Dynamic>,
     pub friendly_name: Option<Dynamic>,
@@ -128,7 +135,21 @@ impl SbAsset {
     }
 
     /// Returns all AssetFile containing the path and bytes which match the given glob.
-    pub fn glob_read(&mut self, glob: &str) -> Result<Vec<AssetFile>, globset::Error> {
-        todo!()
+    pub fn glob_read(&mut self, glob: &str) -> Result<Vec<AssetFile>, AssetError> {
+        let mut output = vec![];
+        let matcher = Glob::new(glob)?.compile_matcher();
+
+        for (file_path, info) in self.file_index.iter() {
+            if matcher.is_match(file_path.clone()) {
+                let mut buf = vec![0u8; usize::try_from(info.1).unwrap_or(0)];
+                self.cursor.read_exact(&mut buf)?;
+                output.push(AssetFile {
+                    path: file_path.clone(),
+                    bytes: buf,
+                })
+            }
+        }
+
+        Ok(output)
     }
 }

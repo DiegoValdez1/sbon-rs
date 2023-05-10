@@ -1,11 +1,12 @@
-pub mod sbasset;
-
 use byteorder::{BigEndian, ReadBytesExt};
+use serde::{Serialize, ser::SerializeSeq};
 use std::{
     collections::HashMap,
     io::{Read, Seek, SeekFrom},
 };
 use thiserror::Error;
+
+pub mod sbasset;
 
 #[derive(Debug, Error)]
 pub enum SbonError {
@@ -40,6 +41,37 @@ pub enum Dynamic {
     String(String),
     List(Vec<Dynamic>),
     Map(HashMap<String, Dynamic>),
+}
+
+impl Serialize for Dynamic {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Dynamic::Null => serializer.serialize_none(),
+            Dynamic::Double(x) => serializer.serialize_f64(x.clone()),
+            Dynamic::Bool(x) => serializer.serialize_bool(x.clone()),
+            Dynamic::SignedVarint(x) => serializer.serialize_i64(x.clone()),
+            Dynamic::String(x) => serializer.serialize_str(x),
+            Dynamic::List(x) => {
+                let mut seq = serializer.serialize_seq(Some(x.len()))?;
+
+                for val in x {
+                    seq.serialize_element(val)?;
+                }
+
+                seq.end()
+            },
+            Dynamic::Map(x) => todo!(),
+        }
+    }
+}
+
+impl Dynamic {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("unable to convert dynamic to json")
+    }
 }
 
 #[derive(Debug)]
