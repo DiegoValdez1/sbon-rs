@@ -142,6 +142,7 @@ impl SbAsset {
         for (file_path, info) in self.file_index.iter() {
             if matcher.is_match(file_path.clone()) {
                 let mut buf = vec![0u8; usize::try_from(info.1).unwrap_or(0)];
+                self.cursor.seek(SeekFrom::Start(info.0))?;
                 self.cursor.read_exact(&mut buf)?;
                 output.push(AssetFile {
                     path: file_path.clone(),
