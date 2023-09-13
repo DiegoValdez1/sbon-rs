@@ -1,3 +1,4 @@
+use crate::{Dynamic, Map, SbonRead};
 use anyhow::{bail, Result};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{
@@ -6,8 +7,6 @@ use std::{
     io::{BufReader, Read, Seek, SeekFrom},
     path::PathBuf,
 };
-
-use crate::{Dynamic, Map, SbonRead};
 
 /// A struct representing a starbound asset file called 'SBAsset6'. Most commonly seen as mods.
 pub struct Asset {
@@ -47,6 +46,7 @@ impl Asset {
         for location in file_locations {
             reader.seek(SeekFrom::Start(location.1))?;
             let mut buf = vec![0u8; location.2 as usize];
+            reader.read_exact(&mut buf)?;
             files.push(AssetEntry {
                 path: location.0,
                 data: buf,
