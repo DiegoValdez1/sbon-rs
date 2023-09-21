@@ -33,6 +33,7 @@ impl Asset {
 
         // Reads file locations from index
         let mut file_locations = vec![];
+
         for _ in 0..num_files {
             file_locations.push((
                 reader.read_string()?,           // Path
@@ -45,8 +46,10 @@ impl Asset {
         let mut files = vec![];
         for location in file_locations {
             reader.seek(SeekFrom::Start(location.1))?;
+
             let mut buf = vec![0u8; location.2 as usize];
             reader.read_exact(&mut buf)?;
+
             files.push(AssetEntry {
                 path: location.0,
                 data: buf,
@@ -54,7 +57,7 @@ impl Asset {
         }
 
         Ok(Self {
-            meta: Metadata::from(raw_meta),
+            meta: raw_meta.into(),
             files,
         })
     }
