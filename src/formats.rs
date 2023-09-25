@@ -4,7 +4,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
@@ -95,6 +95,15 @@ pub struct AssetEntry {
 
     /// Bytes of the file.
     pub data: Vec<u8>,
+}
+
+impl AssetEntry {
+    pub fn export<T: Into<PathBuf>>(&self) -> Result<()> {
+        let path = PathBuf::from(&self.path);
+        let mut f = File::create(path.file_name().unwrap()).unwrap();
+        f.write_all(&self.data).unwrap();
+        Ok(())
+    }
 }
 
 /// Starbound versioned json. Usually used with player files.
