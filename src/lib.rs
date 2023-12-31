@@ -1,27 +1,41 @@
-#![allow(unused)]
+// #![allow(unused)]
 
-use anyhow::{bail, Result};
 use byteorder::{BigEndian, ReadBytesExt};
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+};
 
-pub mod formats;
+pub mod sbasset;
 
-type List = Vec<Dynamic>;
-type Map = HashMap<String, Dynamic>;
+#[derive(Debug, thiserror::Error)]
+pub enum SbonError {
+    #[error("IO error while reading/writing SBON")]
+    Io(#[from] std::io::Error),
 
-#[derive(Debug)]
+    #[error("Invalid dynamic type byte. Expected 1.=7, got '{0}'")]
+    DynamicTypeError(u8),
+
+    #[error("Invalid UTF-8 string encountered while reading SBON")]
+    Utf8(#[from] std::string::FromUtf8Error),
+}
+
+pub type List = Vec<Dynamic>;
+pub type Map = HashMap<String, Dynamic>;
+
 pub enum Dynamic {
-    Null,
+    Nil,
     Double(f64),
-    Bool(bool),
-    Vlqi(i64),
+    Boolean(bool),
+    VlqI(i64),
     String(String),
     List(List),
     Map(Map),
 }
 
 pub trait SbonRead: Read {
-    fn read_vlqu(&mut self) -> Result<u64> {
+    /// Reads starbound encoded un-signed 'VLQ' from the reader.
+    fn read_sb_vlqu(&mut self) -> Result<u64, SbonError> {
         let mut val: u64 = 0;
         loop {
             let byte: u8 = self.read_u8()?;
@@ -32,59 +46,98 @@ pub trait SbonRead: Read {
         }
     }
 
-    fn read_vlqi(&mut self) -> Result<i64> {
-        let mut val = i64::try_from(self.read_vlqu()?)?;
+    /// Reads starbound encoded signed 'VLQ' from the reader.
+    fn read_sb_vlqi(&mut self) -> Result<i64, SbonError> {
+        let mut val = i64::try_from(self.read_sb_vlqu()?).unwrap();
         if val & 1 != 0 {
             val = -(val >> 1) - 1
         }
         Ok(val)
     }
 
-    fn read_string(&mut self) -> Result<String> {
-        let length = usize::try_from(self.read_vlqu()?)?;
-
-        let mut buf = vec![0u8; length];
+    /// Reads starbound encoded 'bytes' from the reader.
+    fn read_sb_bytes(&mut self) -> Result<Vec<u8>, SbonError> {
+        let length = self.read_sb_vlqu()?;
+        let mut buf = vec![0u8; length as usize];
         self.read_exact(&mut buf)?;
-
-        Ok(String::from_utf8(buf)?)
+        Ok(buf)
     }
 
-    fn read_list(&mut self) -> Result<Vec<Dynamic>> {
-        let length = self.read_vlqu()?;
-        let mut list: Vec<Dynamic> = Vec::new();
-
-        for _ in 0..length {
-            list.push(self.read_dynamic()?);
-        }
-
-        Ok(list)
+    /// Reads a starbound encoded 'string' from the reader.
+    fn read_sb_string(&mut self) -> Result<String, SbonError> {
+        let bytes = self.read_sb_bytes()?;
+        Ok(String::from_utf8(bytes)?)
     }
 
-    fn read_map(&mut self) -> Result<HashMap<String, Dynamic>> {
-        let length = self.read_vlqu()?;
-        let mut map: HashMap<String, Dynamic> = HashMap::new();
+    /// Reads a starbound encoded 'list' from the reader.
+    fn read_sb_list(&mut self) -> Result<List, SbonError> {
+        let mut out = Vec::new();
+        let count = self.read_sb_vlqu()?;
 
-        for _ in 0..length {
-            let key = self.read_string()?;
-            map.insert(key, self.read_dynamic()?);
+        for _ in 0..count {
+            out.push(self.read_sb_dynamic()?)
         }
 
-        Ok(map)
+        Ok(out)
     }
 
-    fn read_dynamic(&mut self) -> Result<Dynamic> {
-        let type_byte = self.read_u8()?;
-        match type_byte {
-            1 => Ok(Dynamic::Null),
-            2 => Ok(Dynamic::Double(self.read_f64::<BigEndian>()?)),
-            3 => Ok(Dynamic::Bool(self.read_u8()? != 0)),
-            4 => Ok(Dynamic::Vlqi(self.read_vlqi()?)),
-            5 => Ok(Dynamic::String(self.read_string()?)),
-            6 => Ok(Dynamic::List(self.read_list()?)),
-            7 => Ok(Dynamic::Map(self.read_map()?)),
-            _ => bail!("Invalid dynamic type byte"),
+    /// Reads a starbound encoded 'map' from the reader.
+    fn read_sb_map(&mut self) -> Result<Map, SbonError> {
+        let mut out = HashMap::new();
+        let count = self.read_sb_vlqu()?;
+
+        for _ in 0..count {
+            out.insert(self.read_sb_string()?, self.read_sb_dynamic()?);
         }
+
+        Ok(out)
+    }
+
+    /// Reads a starbound encoded 'dynamic' from the reader.
+    fn read_sb_dynamic(&mut self) -> Result<Dynamic, SbonError> {
+        Ok(match self.read_u8()? {
+            1 => Dynamic::Nil,
+            2 => Dynamic::Double(self.read_f64::<BigEndian>()?),
+            3 => Dynamic::Boolean(self.read_u8()? != 0),
+            4 => Dynamic::VlqI(self.read_sb_vlqi()?),
+            5 => Dynamic::String(self.read_sb_string()?),
+            6 => Dynamic::List(self.read_sb_list()?),
+            7 => Dynamic::Map(self.read_sb_map()?),
+            invalid => return Err(SbonError::DynamicTypeError(invalid)),
+        })
     }
 }
 
 impl<R: Read> SbonRead for R {}
+
+pub trait SbonWrite: Write {
+    fn write_sb_vlqu(&mut self, val: u64) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_vlqi(&mut self, val: i64) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_bytes(&mut self, val: &[u8]) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_string(&mut self, val: &str) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_list(&mut self, val: List) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_map(&mut self, val: Map) -> Result<(), SbonError> {
+        todo!()
+    }
+
+    fn write_sb_dynamic(&mut self, val: Dynamic) -> Result<(), SbonError> {
+        todo!()
+    }
+}
+
+impl<W: Write> SbonWrite for W {}

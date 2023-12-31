@@ -1,17 +1,12 @@
 [package]
 name = "sbon"
 version = "0.1.0"
-authors = [ "Diego Valdez" ]
 edition = "2021"
 description = "Allows you to interface with the file formats used by the game Starbound."
 repository = "https://github.com/DiegoValdez1/sbon-rs"
 
 [lib]
 
-[[bin]]
-name = "sbon-bin"
-path = "src/main.rs"
-
 [dependencies]
-anyhow = "1.0.75"
-byteorder = "1.4.3"
+byteorder = "1.5.0"
+thiserror = "1.0.52"
