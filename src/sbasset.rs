@@ -34,8 +34,8 @@ pub struct Metadata {
 }
 
 /// An asset reader. Reads index then dynamically reads the files inside as they are requested.
-pub struct AssetReader<'a, R: Read + Seek> {
-    inner: &'a mut R,
+pub struct AssetReader<R: Read + Seek> {
+    inner: R,
 
     /// HashMap< path, ( offset, length ) >
     files: HashMap<String, (u64, u64)>,
@@ -43,9 +43,9 @@ pub struct AssetReader<'a, R: Read + Seek> {
     pub meta: Metadata,
 }
 
-impl<'a, R: Read + Seek> AssetReader<'a, R> {
+impl<R: Read + Seek> AssetReader<R> {
     /// Creates an asset reader from the supplied reader. Reads are made on creaction.
-    pub fn new(inner: &'a mut R) -> AssetResult<AssetReader<'a, R>> {
+    pub fn new(mut inner: R) -> AssetResult<AssetReader<R>> {
         // Ensures the starting 'SBAsset6' string in bytes. That number is that string as hex.
         if inner.read_u64::<BigEndian>()? != 0x5342417373657436 {
             return Err(AssetError::InvalidAsset("Invalid magic number"));
@@ -148,9 +148,9 @@ impl<'a, R: Read + Seek> AssetReader<'a, R> {
     }
 }
 
-impl<'a, R: Read + Seek> IntoIterator for AssetReader<'a, R> {
+impl<R: Read + Seek> IntoIterator for AssetReader<R> {
     type Item = (String, Vec<u8>);
-    type IntoIter = AssetIter<'a, R>;
+    type IntoIter = AssetIter<R>;
 
     fn into_iter(self) -> Self::IntoIter {
         let AssetReader { inner, files, .. } = self;
@@ -163,12 +163,12 @@ impl<'a, R: Read + Seek> IntoIterator for AssetReader<'a, R> {
 }
 
 /// An iterator which reads the asset file's path and bytes from the inner readable.
-pub struct AssetIter<'a, R: Read + Seek> {
-    inner: &'a mut R,
+pub struct AssetIter<R: Read + Seek> {
+    inner: R,
     files: std::collections::hash_map::IntoIter<String, (u64, u64)>,
 }
 
-impl<'a, R: Read + Seek> Iterator for AssetIter<'a, R> {
+impl<R: Read + Seek> Iterator for AssetIter<R> {
     type Item = (String, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
