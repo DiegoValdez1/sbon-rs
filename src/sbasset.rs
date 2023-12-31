@@ -5,37 +5,6 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
-macro_rules! meta {
-    (s: $rm:ident, $name:literal) => {
-        if let Some(val) = $rm.remove($name) {
-            if let Dynamic::String(x) = val {
-                Some(x)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-    (l: $rm:ident, $name:literal) => {
-        if let Some(Dynamic::List(lst)) = $rm.remove($name) {
-            let out: Vec<_> = lst
-                .into_iter()
-                .flat_map(|d| {
-                    if let Dynamic::String(s) = d {
-                        Some(s)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            Some(out)
-        } else {
-            None
-        }
-    };
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum AssetError {
     #[error("IO Error while reading from asset")]
@@ -93,18 +62,44 @@ impl<'a, R: Read + Seek> AssetReader<'a, R> {
         }
 
         // Read and parse the metadata
-        let mut rm = inner.read_sb_map()?;
+        let raw_meta = inner.read_sb_map()?;
+        let get = |tag: &str| -> Option<String> {
+            if let Some(d) = raw_meta.get(&tag.to_string()) {
+                if let Dynamic::String(s) = d {
+                    return Some(s.clone());
+                }
+            }
+
+            None
+        };
+        let get_list = |tag: &str| -> Option<Vec<String>> {
+            if let Some(lst_dyn) = raw_meta.get(&tag.to_string()) {
+                if let Dynamic::List(lst) = lst_dyn {
+                    return Some(
+                        lst.into_iter()
+                            .flat_map(|d| match d {
+                                Dynamic::String(s) => Some(s),
+                                _ => None,
+                            })
+                            .cloned()
+                            .collect(),
+                    );
+                }
+            }
+
+            None
+        };
         let meta = Metadata {
-            internal_name: meta!(s: rm, "name"),
-            friendly_name: meta!(s: rm, "friendlyName"),
-            author: meta!(s: rm, "author"),
-            description: meta!(s: rm, "description"),
-            steam_id: meta!(s: rm, "steamContentId"),
-            tags: meta!(s: rm, "tags"),
-            version: meta!(s: rm, "version"),
-            link: meta!(s: rm, "link"),
-            includes: meta!(l: rm, "includes"),
-            requires: meta!(l: rm, "requires"),
+            internal_name: get("name"),
+            friendly_name: get("friendlyName"),
+            author: get("author"),
+            description: get("description"),
+            steam_id: get("steamContentId"),
+            tags: get("tags"),
+            version: get("version"),
+            link: get("link"),
+            includes: get_list("includes"),
+            requires: get_list("requires"),
         };
 
         // Read the files

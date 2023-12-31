@@ -1,4 +1,4 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{

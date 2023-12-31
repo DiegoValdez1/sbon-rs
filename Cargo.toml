@@ -8,6 +8,10 @@ repository = "https://github.com/DiegoValdez1/sbon-rs"
 
 [lib]
 
+[[bin]]
+name="sbon-bin"
+path="src/main.rs"
+
 [dependencies]
 byteorder = "1.5.0"
 thiserror = "1.0.52"
