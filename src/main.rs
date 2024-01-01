@@ -1,11 +1,9 @@
 #![allow(unused)]
 
-use std::fs::File;
-use sbon::sbasset::AssetReader;
+use sbon::{sbasset::AssetReader, Dynamic, SbonRead, SbonWrite};
+use std::{
+    fs::File,
+    io::{Cursor, Seek, SeekFrom, Write},
+};
 
-fn main() {
-    let mut f = File::open("testing/contents.pak").unwrap();
-    let mut a = AssetReader::new(&mut f).unwrap();
-
-    dbg!(a.meta);
-}
+fn main() {}

@@ -19,6 +19,11 @@ pub enum AssetError {
 
 type AssetResult<T> = Result<T, AssetError>;
 
+pub struct AssetFile {
+    pub path: String,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub struct Metadata {
     pub internal_name: Option<String>,
@@ -125,16 +130,15 @@ impl<R: Read + Seek> AssetReader<R> {
         Ok(out)
     }
 
-    /// Gets a file in the asset by its path as defined by starbound.
-    pub fn get_file(&mut self, path: impl ToString) -> Option<AssetResult<Vec<u8>>> {
+    /// Gets a file's bytes in the asset by its path as defined by starbound.
+    pub fn get_file(&mut self, path: impl ToString) -> Option<AssetResult<AssetFile>> {
         let path = path.to_string();
-
         if !self.files.contains_key(&path) {
             return None;
         }
 
         let info = self.files.get(&path).unwrap().clone();
-        Some(self.read_file(&info))
+        Some(self.read_file(&info).map(|bytes| AssetFile { path, bytes }))
     }
 
     /// Gets all the starbound defined paths of files in this asset.
@@ -143,13 +147,13 @@ impl<R: Read + Seek> AssetReader<R> {
     }
 
     /// Tests if this asset has a file present by its path.
-    pub fn has_file(&self, path: impl ToString) -> bool {
-        self.files.contains_key(&path.to_string())
+    pub fn has_file(&self, path: &String) -> bool {
+        self.files.contains_key(path)
     }
 }
 
 impl<R: Read + Seek> IntoIterator for AssetReader<R> {
-    type Item = (String, Vec<u8>);
+    type Item = AssetResult<AssetFile>;
     type IntoIter = AssetIter<R>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -169,15 +173,27 @@ pub struct AssetIter<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> Iterator for AssetIter<R> {
-    type Item = (String, Vec<u8>);
+    type Item = AssetResult<AssetFile>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (path, (offset, length)) = self.files.next()?;
 
         let mut buf = vec![0u8; length as usize];
-        self.inner.seek(SeekFrom::Start(offset)).ok()?;
-        self.inner.read_exact(&mut buf).ok()?;
+        if let Err(e) = self
+            .inner
+            .seek(SeekFrom::Start(offset))
+            .map_err(|e| AssetError::from(e))
+        {
+            return Some(Err(e));
+        }
+        if let Err(e) = self
+            .inner
+            .read_exact(&mut buf)
+            .map_err(|e| AssetError::from(e))
+        {
+            return Some(Err(e));
+        }
 
-        Some((path, buf))
+        Some(Ok(AssetFile { path, bytes: buf }))
     }
 }

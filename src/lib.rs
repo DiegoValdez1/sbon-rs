@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -23,6 +23,8 @@ pub enum SbonError {
 pub type List = Vec<Dynamic>;
 pub type Map = HashMap<String, Dynamic>;
 
+/// The starbound dynamic type.
+#[derive(Debug)]
 pub enum Dynamic {
     Nil,
     Double(f64),
@@ -33,8 +35,9 @@ pub enum Dynamic {
     Map(Map),
 }
 
+/// Functions to read starbound primitive values from anything that implements read.
 pub trait SbonRead: Read {
-    /// Reads starbound encoded un-signed 'VLQ' from the reader.
+    /// Reads starbound encoded unsigned 'VLQ' from the reader.
     fn read_sb_vlqu(&mut self) -> Result<u64, SbonError> {
         let mut val: u64 = 0;
         loop {
@@ -49,7 +52,7 @@ pub trait SbonRead: Read {
     /// Reads starbound encoded signed 'VLQ' from the reader.
     fn read_sb_vlqi(&mut self) -> Result<i64, SbonError> {
         let mut val = i64::try_from(self.read_sb_vlqu()?).unwrap();
-        if val & 1 != 0 {
+        if val & 0b1 != 0 {
             val = -(val >> 1) - 1
         }
         Ok(val)
@@ -110,33 +113,99 @@ pub trait SbonRead: Read {
 
 impl<R: Read> SbonRead for R {}
 
+/// Functions to write starbound primitive values to anything that implements write.
 pub trait SbonWrite: Write {
-    fn write_sb_vlqu(&mut self, val: u64) -> Result<(), SbonError> {
-        todo!()
+    /// Writes a starbound encoded unsigned 'VLQ' to the writer.
+    fn write_sb_vlqu(&mut self, mut val: u64) -> Result<(), SbonError> {
+        let mut buf = Vec::new();
+
+        buf.push((val & 0b1111111) as u8);
+        val >>= 7;
+
+        while val != 0 {
+            buf.push((val & 0b1111111 | 0b10000000) as u8);
+            val >>= 7;
+        }
+
+        buf.reverse();
+        self.write_all(&buf)?;
+        Ok(())
     }
 
+    /// Writes a starbound encoded signed 'VLQ' to the writer.
     fn write_sb_vlqi(&mut self, val: i64) -> Result<(), SbonError> {
-        todo!()
+        self.write_sb_vlqu(match val {
+            x if x < 0 => ((x + 1).abs() << 1 | 1) as u64,
+            x => (x << 1) as u64,
+        })
     }
 
+    /// Writes starbound encoded 'bytes' to the writer.
     fn write_sb_bytes(&mut self, val: &[u8]) -> Result<(), SbonError> {
-        todo!()
+        self.write_sb_vlqu(val.len() as u64)?;
+        self.write_all(val)?;
+        Ok(())
     }
 
+    /// Writes a starbound encoded 'string' to the writer.
     fn write_sb_string(&mut self, val: &str) -> Result<(), SbonError> {
-        todo!()
+        self.write_sb_bytes(val.as_bytes())
     }
 
+    /// Writes a starbound encoded 'list' to the writer.
     fn write_sb_list(&mut self, val: List) -> Result<(), SbonError> {
-        todo!()
+        self.write_sb_vlqu(val.len() as u64)?;
+
+        for d in val {
+            self.write_sb_dynamic(d)?;
+        }
+
+        Ok(())
     }
 
+    /// Writes a starbound encoded 'map' to the writer.
     fn write_sb_map(&mut self, val: Map) -> Result<(), SbonError> {
-        todo!()
+        self.write_sb_vlqu(val.len() as u64)?;
+
+        for (key, dynamic) in val {
+            self.write_sb_string(&key)?;
+            self.write_sb_dynamic(dynamic)?;
+        }
+
+        Ok(())
     }
 
+    /// Writes a starbound encoded 'dynamic' to the writer.
     fn write_sb_dynamic(&mut self, val: Dynamic) -> Result<(), SbonError> {
-        todo!()
+        match val {
+            Dynamic::Nil => self.write_u8(1)?,
+            Dynamic::Double(x) => {
+                self.write_u8(2)?;
+                self.write_f64::<BigEndian>(x)?;
+            }
+            Dynamic::Boolean(x) => {
+                self.write_u8(3)?;
+                self.write_u8(x as u8)?;
+            }
+            Dynamic::VlqI(x) => {
+                self.write_u8(4)?;
+                self.write_sb_vlqi(x)?;
+            }
+            Dynamic::String(x) => {
+                self.write_u8(5)?;
+                self.write_sb_string(&x)?;
+            }
+            Dynamic::List(x) => {
+                self.write_u8(6)?;
+                self.write_sb_list(x)?;
+            }
+            Dynamic::Map(x) => {
+                self.write_u8(7)?;
+                self.write_sb_map(x)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
