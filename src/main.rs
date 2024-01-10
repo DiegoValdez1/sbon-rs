@@ -1,18 +1,23 @@
 #![allow(unused)]
 
+use sbon::formats::SbvjRead;
+use tinyjson::JsonValue;
 use std::{
-    fs::File,
+    fs::{File, write},
     io::{Cursor, Seek, SeekFrom, Write},
 };
-use sbon::formats::SbvjRead;
 
 fn main() {
-    // let save = File::open("testing/test.player")
-    //     .unwrap()
-    //     .read_sb_sbvj01()
-    //     .unwrap();
+    let save = File::open("testing/test.player")
+        .unwrap()
+        .read_sb_sbvj01()
+        .unwrap();
 
-    // dbg!(save);
+    dbg!(&save.name);
 
-    let b = "";
+    let json: JsonValue = save.data.into();
+
+    let b = json.stringify().unwrap();
+
+    write("testing/out", b).unwrap();
 }

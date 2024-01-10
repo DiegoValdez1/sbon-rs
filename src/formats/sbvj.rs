@@ -1,10 +1,11 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
+use tinyjson::JsonValue;
+use std::{io::{Read, Write}, path::Path, fs::File};
 
 use crate::{Dynamic, SbonError, SbonRead, SbonWrite};
 
-/// The string "SBVJ01" in hex
-const SBVJ01: [u8; 6] = [0x53, 0x42, 0x56, 0x4A, 0x30, 0x31];
+/// The string "SBVJ01" in bytes
+const SBVJ01: &[u8] = "SBVJ01".as_bytes();
 
 #[derive(Debug, thiserror::Error)]
 pub enum SbvjError {
@@ -24,6 +25,12 @@ pub struct VJson {
     pub name: String,
     pub version: Option<i32>,
     pub data: Dynamic,
+}
+
+impl From<VJson> for JsonValue {
+    fn from(value: VJson) -> Self {
+        value.data.into()
+    }
 }
 
 pub trait SbvjRead: Read + SbonRead {
@@ -74,7 +81,7 @@ pub trait SbvjWrite: Write + SbonWrite {
         Ok(())
     }
 
-    /// Writes `SBVJ01` data to self. This is just a magic number with a `Vjson` right after it. Usually used in standalone files.
+    /// Writes `SBVJ01` data to self. This is just a magic number with a `VJson` right after it. Usually used in standalone files.
     fn write_sb_sbvj01(&mut self, val: &VJson) -> Result<(), SbvjError> {
         self.write_all(&SBVJ01)?;
         self.write_sb_vjson(&val)
@@ -82,3 +89,8 @@ pub trait SbvjWrite: Write + SbonWrite {
 }
 
 impl<W: Write + SbonWrite> SbvjWrite for W {}
+
+/// Convience for opening a file and reading a `SBVJ01`, which is just a `VJson`.
+pub fn read_sbvj01(path: impl AsRef<Path>) -> Result<VJson, SbvjError> {
+    File::open(path)?.read_sb_sbvj01()
+}

@@ -3,8 +3,10 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::HashMap,
+    fmt::Display,
     io::{Read, Write},
 };
+use tinyjson::JsonValue;
 
 pub mod formats;
 
@@ -31,7 +33,7 @@ pub type Map = HashMap<String, Dynamic>;
 #[derive(Debug, thiserror::Error)]
 pub enum TryFromDynamicError {
     #[error("The provided dynamic cannot be unwrapped to the wanted type.")]
-    Invalid
+    Invalid,
 }
 
 /// The starbound dynamic type.
@@ -52,6 +54,22 @@ impl Dynamic {
     /// it returns None.
     pub fn cast<T: TryFrom<Dynamic>>(self) -> Option<T> {
         T::try_from(self).ok()
+    }
+}
+
+impl From<Dynamic> for JsonValue {
+    fn from(value: Dynamic) -> Self {
+        match value {
+            Dynamic::Nil => Self::Null,
+            Dynamic::Double(x) => Self::Number(x),
+            Dynamic::Boolean(x) => Self::Boolean(x),
+            Dynamic::VlqI(x) => Self::Number(x as f64),
+            Dynamic::String(x) => Self::String(x),
+            Dynamic::List(x) => Self::Array(x.into_iter().map(|d| From::from(d)).collect()),
+            Dynamic::Map(x) => {
+                Self::Object(x.into_iter().map(|(s, d)| (s, From::from(d))).collect())
+            }
+        }
     }
 }
 
@@ -76,7 +94,7 @@ pub enum SbonError {
     Utf8(#[from] std::string::FromUtf8Error),
 
     #[error("Max bytes read for VLQU is 10, while the VLQU wants to read over 10.")]
-    OversizedVLQ
+    OversizedVLQ,
 }
 
 /// Functions to read starbound encoded types from `self`, and returning their rust value.
@@ -91,7 +109,7 @@ pub trait SbonRead: Read {
                 return Ok(val);
             }
         }
-        return Err(SbonError::OversizedVLQ)
+        return Err(SbonError::OversizedVLQ);
     }
 
     /// Reads starbound encoded signed 'VLQ' from the reader.
@@ -99,7 +117,7 @@ pub trait SbonRead: Read {
         let val = self.read_sb_vlqu()?;
 
         if val & 0b1 != 0 {
-            return Ok((-((val >> 1) as i64)  - 1))
+            return Ok((-((val >> 1) as i64) - 1));
         }
 
         Ok((val >> 1) as i64)
