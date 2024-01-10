@@ -6,22 +6,33 @@ use std::{
     io::{Read, Write},
 };
 
-pub mod sbasset;
+pub mod formats;
 
-#[derive(Debug, thiserror::Error)]
-pub enum SbonError {
-    #[error("IO error while reading/writing SBON")]
-    Io(#[from] std::io::Error),
+macro_rules! impl_try_from_dynamic {
+    ($($dyn_type:ident = $wanted_type:ty),*) => {
+        $(
+            impl TryFrom<Dynamic> for $wanted_type {
+                type Error = TryFromDynamicError;
 
-    #[error("Invalid dynamic type byte. Expected 1.=7, got '{0}'")]
-    DynamicTypeError(u8),
-
-    #[error("Invalid UTF-8 string encountered while reading SBON")]
-    Utf8(#[from] std::string::FromUtf8Error),
+                fn try_from(value: Dynamic) -> Result<Self, Self::Error> {
+                    match value {
+                        Dynamic::$dyn_type(val) => Ok(val),
+                        _ => Err(TryFromDynamicError::Invalid)
+                    }
+                }
+            }
+        )*
+    };
 }
 
 pub type List = Vec<Dynamic>;
 pub type Map = HashMap<String, Dynamic>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum TryFromDynamicError {
+    #[error("The provided dynamic cannot be unwrapped to the wanted type.")]
+    Invalid
+}
 
 /// The starbound dynamic type.
 #[derive(Debug)]
@@ -35,27 +46,63 @@ pub enum Dynamic {
     Map(Map),
 }
 
-/// Functions to read starbound primitive values from anything that implements read.
+impl Dynamic {
+    /// Attempts to unwrap this dynamic to its inner value. Since each enum variant is of a different type,
+    /// this fn returns a Option of the type specified. If the dynamic does not match they type specified,
+    /// it returns None.
+    pub fn cast<T: TryFrom<Dynamic>>(self) -> Option<T> {
+        T::try_from(self).ok()
+    }
+}
+
+impl_try_from_dynamic! {
+    Double = f64,
+    Boolean = bool,
+    VlqI = i64,
+    String = String,
+    List = List,
+    Map = Map
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SbonError {
+    #[error("IO error while reading/writing SBON")]
+    Io(#[from] std::io::Error),
+
+    #[error("Invalid dynamic type byte. Expected 1.=7, got '{0}'")]
+    DynamicTypeError(u8),
+
+    #[error("Invalid UTF-8 string encountered while reading SBON")]
+    Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error("Max bytes read for VLQU is 10, while the VLQU wants to read over 10.")]
+    OversizedVLQ
+}
+
+/// Functions to read starbound encoded types from `self`, and returning their rust value.
 pub trait SbonRead: Read {
     /// Reads starbound encoded unsigned 'VLQ' from the reader.
     fn read_sb_vlqu(&mut self) -> Result<u64, SbonError> {
         let mut val: u64 = 0;
-        loop {
+        for _ in 0..10 {
             let byte: u8 = self.read_u8()?;
             val = val << 7 | (byte & 0b0111_1111) as u64;
             if byte & 0b1000_0000 == 0 {
                 return Ok(val);
             }
         }
+        return Err(SbonError::OversizedVLQ)
     }
 
     /// Reads starbound encoded signed 'VLQ' from the reader.
     fn read_sb_vlqi(&mut self) -> Result<i64, SbonError> {
-        let mut val = i64::try_from(self.read_sb_vlqu()?).unwrap();
+        let val = self.read_sb_vlqu()?;
+
         if val & 0b1 != 0 {
-            val = -(val >> 1) - 1
+            return Ok((-((val >> 1) as i64)  - 1))
         }
-        Ok(val)
+
+        Ok((val >> 1) as i64)
     }
 
     /// Reads starbound encoded 'bytes' from the reader.
@@ -153,7 +200,7 @@ pub trait SbonWrite: Write {
     }
 
     /// Writes a starbound encoded 'list' to the writer.
-    fn write_sb_list(&mut self, val: List) -> Result<(), SbonError> {
+    fn write_sb_list(&mut self, val: &List) -> Result<(), SbonError> {
         self.write_sb_vlqu(val.len() as u64)?;
 
         for d in val {
@@ -164,36 +211,36 @@ pub trait SbonWrite: Write {
     }
 
     /// Writes a starbound encoded 'map' to the writer.
-    fn write_sb_map(&mut self, val: Map) -> Result<(), SbonError> {
+    fn write_sb_map(&mut self, val: &Map) -> Result<(), SbonError> {
         self.write_sb_vlqu(val.len() as u64)?;
 
         for (key, dynamic) in val {
             self.write_sb_string(&key)?;
-            self.write_sb_dynamic(dynamic)?;
+            self.write_sb_dynamic(&dynamic)?;
         }
 
         Ok(())
     }
 
     /// Writes a starbound encoded 'dynamic' to the writer.
-    fn write_sb_dynamic(&mut self, val: Dynamic) -> Result<(), SbonError> {
+    fn write_sb_dynamic(&mut self, val: &Dynamic) -> Result<(), SbonError> {
         match val {
             Dynamic::Nil => self.write_u8(1)?,
             Dynamic::Double(x) => {
                 self.write_u8(2)?;
-                self.write_f64::<BigEndian>(x)?;
+                self.write_f64::<BigEndian>(*x)?;
             }
             Dynamic::Boolean(x) => {
                 self.write_u8(3)?;
-                self.write_u8(x as u8)?;
+                self.write_u8((*x) as u8)?;
             }
             Dynamic::VlqI(x) => {
                 self.write_u8(4)?;
-                self.write_sb_vlqi(x)?;
+                self.write_sb_vlqi(*x)?;
             }
             Dynamic::String(x) => {
                 self.write_u8(5)?;
-                self.write_sb_string(&x)?;
+                self.write_sb_string(x)?;
             }
             Dynamic::List(x) => {
                 self.write_u8(6)?;

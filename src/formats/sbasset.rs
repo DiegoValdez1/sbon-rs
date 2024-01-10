@@ -1,10 +1,29 @@
-use crate::{Dynamic, SbonRead};
+use crate::{Dynamic, List, Map, SbonRead};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{
     collections::HashMap,
-    io::{Read, Seek, SeekFrom},
+    fs::File,
+    io::{Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
 };
 
+// Utility
+// ====================================================================================================================
+
+fn get<T: TryFrom<Dynamic>>(rm: &mut Map, tag: &'static str) -> Option<T> {
+    rm.remove(tag)?.cast()
+}
+
+fn get_list<T: TryFrom<Dynamic>>(rm: &mut Map, tag: &'static str) -> Option<Vec<T>> {
+    rm.remove(tag)?
+        .cast::<List>()?
+        .into_iter()
+        .map(|d| d.cast())
+        .collect()
+}
+
+// Error
+// ====================================================================================================================
 #[derive(Debug, thiserror::Error)]
 pub enum AssetError {
     #[error("IO Error while reading from asset")]
@@ -19,12 +38,28 @@ pub enum AssetError {
 
 type AssetResult<T> = Result<T, AssetError>;
 
+// Pre-Items
+// ====================================================================================================================
+
+pub struct SbPath(PathBuf);
+
+impl SbPath {}
+
+/// A struct which contains a file read from a starbound asset.
 pub struct AssetFile {
     pub path: String,
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
+impl AssetFile {
+    /// Writes this file to the path supplied.
+    pub fn export(&self, path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+        File::create(path)?.write_all(&self.bytes)
+    }
+}
+
+/// Information about an asset
+#[derive(Debug, Default, Clone)]
 pub struct Metadata {
     pub internal_name: Option<String>,
     pub friendly_name: Option<String>,
@@ -36,6 +71,23 @@ pub struct Metadata {
     pub link: Option<String>,
     pub includes: Option<Vec<String>>,
     pub requires: Option<Vec<String>>,
+}
+
+// Main items
+// ====================================================================================================================
+/// An owned version of an Asset which holds all of the files it contains in memory
+#[derive(Default)]
+pub struct Asset {
+    pub meta: Metadata,
+    pub files: Vec<AssetFile>,
+}
+
+impl Asset {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_file(&mut self) {}
 }
 
 /// An asset reader. Reads index then dynamically reads the files inside as they are requested.
@@ -67,44 +119,18 @@ impl<R: Read + Seek> AssetReader<R> {
         }
 
         // Read and parse the metadata
-        let raw_meta = inner.read_sb_map()?;
-        let get = |tag: &str| -> Option<String> {
-            if let Some(d) = raw_meta.get(&tag.to_string()) {
-                if let Dynamic::String(s) = d {
-                    return Some(s.clone());
-                }
-            }
-
-            None
-        };
-        let get_list = |tag: &str| -> Option<Vec<String>> {
-            if let Some(lst_dyn) = raw_meta.get(&tag.to_string()) {
-                if let Dynamic::List(lst) = lst_dyn {
-                    return Some(
-                        lst.into_iter()
-                            .flat_map(|d| match d {
-                                Dynamic::String(s) => Some(s),
-                                _ => None,
-                            })
-                            .cloned()
-                            .collect(),
-                    );
-                }
-            }
-
-            None
-        };
+        let mut rm = inner.read_sb_map()?;
         let meta = Metadata {
-            internal_name: get("name"),
-            friendly_name: get("friendlyName"),
-            author: get("author"),
-            description: get("description"),
-            steam_id: get("steamContentId"),
-            tags: get("tags"),
-            version: get("version"),
-            link: get("link"),
-            includes: get_list("includes"),
-            requires: get_list("requires"),
+            internal_name: get(&mut rm, "name"),
+            friendly_name: get(&mut rm, "friendlyName"),
+            author: get(&mut rm, "author"),
+            description: get(&mut rm, "description"),
+            steam_id: get(&mut rm, "steamContentId"),
+            tags: get(&mut rm, "tags"),
+            version: get(&mut rm, "version"),
+            link: get(&mut rm, "link"),
+            includes: get_list(&mut rm, "includes"),
+            requires: get_list(&mut rm, "requires"),
         };
 
         // Read the files
@@ -150,16 +176,26 @@ impl<R: Read + Seek> AssetReader<R> {
     pub fn has_file(&self, path: &String) -> bool {
         self.files.contains_key(path)
     }
+
+    /// Converts this `AssetReader` to an `Asset`, which owns all of its paths.
+    pub fn to_asset(self) -> AssetResult<Asset> {
+        let meta = self.meta.clone();
+        let mut files = Vec::new();
+        for file in self.into_iter() {
+            files.push(file?);
+        }
+        Ok(Asset { meta, files })
+    }
 }
 
 impl<R: Read + Seek> IntoIterator for AssetReader<R> {
     type Item = AssetResult<AssetFile>;
-    type IntoIter = AssetIter<R>;
+    type IntoIter = AssetReadIter<R>;
 
     fn into_iter(self) -> Self::IntoIter {
         let AssetReader { inner, files, .. } = self;
 
-        AssetIter {
+        AssetReadIter {
             inner,
             files: files.into_iter(),
         }
@@ -167,12 +203,12 @@ impl<R: Read + Seek> IntoIterator for AssetReader<R> {
 }
 
 /// An iterator which reads the asset file's path and bytes from the inner readable.
-pub struct AssetIter<R: Read + Seek> {
+pub struct AssetReadIter<R: Read + Seek> {
     inner: R,
     files: std::collections::hash_map::IntoIter<String, (u64, u64)>,
 }
 
-impl<R: Read + Seek> Iterator for AssetIter<R> {
+impl<R: Read + Seek> Iterator for AssetReadIter<R> {
     type Item = AssetResult<AssetFile>;
 
     fn next(&mut self) -> Option<Self::Item> {

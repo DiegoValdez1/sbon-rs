@@ -1,9 +1,18 @@
 #![allow(unused)]
 
-use sbon::{sbasset::AssetReader, Dynamic, SbonRead, SbonWrite};
 use std::{
     fs::File,
     io::{Cursor, Seek, SeekFrom, Write},
 };
+use sbon::formats::SbvjRead;
 
-fn main() {}
+fn main() {
+    // let save = File::open("testing/test.player")
+    //     .unwrap()
+    //     .read_sb_sbvj01()
+    //     .unwrap();
+
+    // dbg!(save);
+
+    let b = "";
+}
